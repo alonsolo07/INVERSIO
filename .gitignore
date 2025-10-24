@@ -1,0 +1,17 @@
+# Carpetas Python
+__pycache__/
+*.pyc
+
+# Datos grandes
+#data/
+
+# Entornos virtuales
+.venv/
+env/
+
+# Archivos de configuración local
+*.env
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
