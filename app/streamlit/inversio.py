@@ -6,6 +6,7 @@ import textwrap
 import streamlit.components.v1 as components
 from PIL import Image
 import os
+from config.settings import LOGO_PATH
 
 # Configuración de la página
 st.set_page_config(page_title="Recomendador de ETFs", layout="wide")
@@ -104,10 +105,10 @@ st.markdown("""
 col_logo, col_a, col_selector = st.columns([1, 2, 1])
 with col_logo:
     # Ruta relativa al archivo; adapta si pones la imagen en otra carpeta
-    logo_path = "../../inversio_logo.png"
-    if os.path.exists(logo_path):
-        logo_img = Image.open(logo_path)
-        st.image(logo_img, width=200)  # ajusta ancho según necesites
+
+    if os.path.exists(LOGO_PATH):
+        logo_img = Image.open(LOGO_PATH)
+        st.image(LOGO_PATH, width=200)  # ajusta ancho según necesites
     else:
         st.markdown("### INVERSIO")  # fallback si falta la imagen
 

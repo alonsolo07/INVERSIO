@@ -1,0 +1,21 @@
+# ============================================
+# INVERSIO - Sistema de Recomendación de ETFs
+# ============================================
+
+# --------------- WEB SCRAPING -----------------
+selenium==4.33.0
+requests==2.32.3
+webdriver-manager==4.0.2       # Gestión automática de ChromeDriver
+
+# -------------- DATA PROCESSING ---------------
+pandas==2.2.3
+numpy==2.2.6
+
+# ----------------- APP CORE -------------------
+streamlit==1.50.0
+
+# ------------ DATA VISUALIZATION --------------
+plotly==6.3.0
+
+# ------------- IMAGE PROCESSING ---------------
+pillow==11.2.1
