@@ -16,6 +16,8 @@ streamlit==1.50.0
 
 # ------------ DATA VISUALIZATION --------------
 plotly==6.3.0
+streamlit-plotly-events==0.0.6
+
 
 # ------------- IMAGE PROCESSING ---------------
 pillow==11.2.1

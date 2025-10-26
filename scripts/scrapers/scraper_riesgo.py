@@ -9,6 +9,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import ETF_RIESGO_PATH
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,22 +25,23 @@ class MorningstarRiesgoScraper:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--window-size=1920,1080")
-        
+
         self.driver = webdriver.Chrome(options=chrome_options)
         self.delay = delay
         self.output_file = output_file
         self.rows_per_page = rows_per_page
         self.current_page = None
-        
-        self.existing_data = pd.read_csv(output_file) if os.path.exists(output_file) else pd.DataFrame()
-        self.start_page = (len(self.existing_data) // rows_per_page) + 1 if not self.existing_data.empty else 1
-        print(f"ETF´s existentes: {len(self.existing_data)}. Reanudando en página {self.start_page}.")
+
+        # Inicializamos datos en memoria, no cargamos CSV previo
+        self.existing_data = pd.DataFrame()
+        self.start_page = 1
+        print("Iniciando scrapeo desde la página 1.")
 
     def load_screener_page(self):
         url = "https://global.morningstar.com/es/herramientas/buscador/etfs"
         print(f"Cargando página del screener: {url}")
         self.driver.get(url)
-        time.sleep(self.delay * 2)
+        time.sleep(self.delay * 5)
 
     def close_cookies_banner(self):
         try:
@@ -68,33 +73,47 @@ class MorningstarRiesgoScraper:
             pass
 
     def select_view(self, view_name="Riesgo"):
-        try:
-            dropdown_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button.mdc-tools-view-selector__views-button__mdc"))
-            )
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
-            dropdown_button.click()
-            time.sleep(1)
+        for attempt in range(3):
+            try:
+                dropdown_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.mdc-tools-view-selector__views-button__mdc"))
+                )
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
+                dropdown_button.click()
+                time.sleep(1)
 
-            options = self.driver.find_elements(By.CSS_SELECTOR, "div.mdc-list-group-item__text__mdc")
-            for option in options:
-                if view_name in option.text:
-                    option.click()
-                    time.sleep(2)
-                    print(f"Vista '{view_name}' seleccionada")
-                    return
-            print(f"No se encontró la opción '{view_name}'")
-        except Exception as e:
-            print(f"Error al seleccionar vista {view_name}: {e}")
+                options = self.driver.find_elements(By.CSS_SELECTOR, "div.mdc-list-group-item__text__mdc")
+                for option in options:
+                    if view_name in option.text:
+                        option.click()
+                        time.sleep(2)
+                        print(f"Vista '{view_name}' seleccionada")
+                        return
+                print(f"No se encontró la opción '{view_name}'")
+            except Exception as e:
+                print(f"Intento {attempt+1}/3 fallido al seleccionar vista {view_name}: {e}")
+                time.sleep(5)
 
     def wait_for_table_update(self):
-        time.sleep(self.delay)
+        """Espera a que la tabla de ETFs se actualice tras cambiar de página."""
         try:
-            WebDriverWait(self.driver, 10).until(
+            # Espera a que desaparezca la tabla anterior
+            WebDriverWait(self.driver, 10).until_not(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-data-grid-table__mdc table"))
             )
         except TimeoutException:
-            print("Timeout esperando actualización de tabla")
+            pass  # Puede que la tabla no desaparezca visualmente
+
+        time.sleep(self.delay)  # Espera adicional para estabilidad
+
+        try:
+            # Espera a que reaparezca la tabla nueva
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-data-grid-table__mdc table"))
+            )
+            time.sleep(1)
+        except TimeoutException:
+            print("⚠ Timeout esperando actualización de tabla tras cambio de página")
 
     def click_next_button(self):
         try:
@@ -108,13 +127,12 @@ class MorningstarRiesgoScraper:
             next_button = next_buttons[0]
             if next_button.get_attribute("disabled"):
                 print("\n-----------------------------------")
-                print("Ultima página alcanzada")
+                print("Última página alcanzada")
                 print("-----------------------------------\n")
                 return False
 
             self.driver.execute_script("arguments[0].scrollIntoView(true);", next_button)
             time.sleep(0.5)
-
             try:
                 next_button.click()
             except ElementClickInterceptedException:
@@ -162,15 +180,21 @@ class MorningstarRiesgoScraper:
         df = pd.DataFrame(data)
         if df.empty:
             return
-        if not self.existing_data.empty:
-            df = df[~df['ISIN'].isin(self.existing_data['ISIN'])]
-        if df.empty:
-            return
 
-        header = not os.path.exists(self.output_file)
-        df.to_csv(self.output_file, mode='a', index=False, encoding='utf-8-sig', header=header)
+        # Orden columnas para consistencia
+        columns_order = [
+            'Nombre','ISIN','KID SRI','Alfa 3 Años, Mensual','Beta 3 Años, Mensual',
+            'R-cuadrado 3 Años, Mensual','Volatilidad 3 Años, Mensual','Ratio de Sharpe 3 Años, Mensual'
+        ]
+        for col in columns_order:
+            if col not in df.columns:
+                df[col] = ""
+
+        df = df[columns_order]
+
+        # Acumulamos en memoria
         self.existing_data = pd.concat([self.existing_data, df], ignore_index=True)
-        print(f"{len(self.existing_data)} ETF´s guardados")
+        print(f"{len(self.existing_data)} ETF´s")
 
     def jump_to_start_page(self):
         if self.start_page <= 1:
@@ -209,15 +233,35 @@ class MorningstarRiesgoScraper:
             self.wait_for_table_update()
 
         print("Proceso completado.")
-        print(f"ETF's en CSV: {len(self.existing_data)}")
+        print(f"ETF's en memoria: {len(self.existing_data)}")
+
+    def save_csv_final(self):
+        if self.existing_data.empty:
+            print("No hay datos para guardar.")
+            return
+
+        columns_order = [
+            'Nombre','ISIN','KID SRI','Alfa 3 Años, Mensual','Beta 3 Años, Mensual',
+            'R-cuadrado 3 Años, Mensual','Volatilidad 3 Años, Mensual','Ratio de Sharpe 3 Años, Mensual'
+        ]
+        for col in columns_order:
+            if col not in self.existing_data.columns:
+                self.existing_data[col] = ""
+
+        df_out = self.existing_data[columns_order]
+        df_out.to_csv(self.output_file, index=False, encoding='utf-8-sig')
+        print(f"✅ Archivo final guardado en '{self.output_file}' con {len(df_out)} ETFs.")
 
     def scrape_to_csv(self, max_pages=None):
         try:
             self.scrape_all_pages(max_pages=max_pages)
+            self.save_csv_final()
         finally:
             self.driver.quit()
+            # Pequeño delay para liberar recursos antes del siguiente scraper
+            time.sleep(5)
             print("Cerrando scraper.")
 
 if __name__ == "__main__":
-    scraper = MorningstarRiesgoScraper(headless=True, delay=3, output_file="etf_riesgo.csv")
+    scraper = MorningstarRiesgoScraper(headless=True, delay=3, output_file=ETF_RIESGO_PATH)
     scraper.scrape_to_csv()

@@ -16,8 +16,14 @@ import pandas as pd
 import numpy as np
 import logging
 
+import sys
+import os
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import ETFS_SCORED_PATH, TOPN_CATEGORIA_PATH, TOPN_GRUPO_PATH, ETF_LIMPIO_PATH
+
 # ======================================================
-# 🧭 CONFIGURACIÓN DE LOGGING PROFESIONAL
+# 🧭 LOGGING
 # ======================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -30,7 +36,7 @@ logger = logging.getLogger(__name__)
 PREDICTED_COL = "Rentabilidad_Anual_Predicha"
 
 # ======================================================
-# ⚖️ CONFIGURACIÓN GLOBAL BASE DE MÉTRICAS
+# ⚖️ CONFIGURACIÓN GLOBAL MÉTRICAS
 # ======================================================
 # Esta es la base, que será SOBREESCRITA por los pesos dinámicos en la función de scoring.
 METRICS_CONFIG_BASE = {
@@ -47,7 +53,7 @@ METRICS_CONFIG_BASE = {
 }
 
 # ======================================================
-# 🎯 CONFIGURACIÓN DE PESOS DINÁMICOS POR GRUPO (NÚCLEO DEL CAMBIO)
+# 🎯 CONFIGURACIÓN DE PESOS DINÁMICOS POR GRUPO
 # ======================================================
 DYNAMIC_WEIGHTS = {
     # GRUPO 1: BAJO RIESGO (Cash, RF Corto Plazo) - PRIORIDAD: Seguridad
@@ -79,35 +85,43 @@ DYNAMIC_WEIGHTS = {
 # ⚙️ CARGA Y LIMPIEZA DE DATOS
 # ======================================================
 def cargar_datos(path_csv: str) -> pd.DataFrame:
-    """Carga los datos, limpia NaNs básicos y convierte columnas a tipos numéricos."""
+    """
+    Carga los datos desde CSV, asegura que existan todas las columnas necesarias,
+    convierte las columnas numéricas y mantiene todas las filas aunque falten datos.
+    """
     logger.info("🔍 Preparando datos de entrada...")
     try:
         df = pd.read_csv(path_csv)
     except FileNotFoundError:
         logger.error(f"Error fatal: No se encontró el archivo en {path_csv}")
         return pd.DataFrame()
-        
+
+    # Columnas base opcionales, no obligatorias
     base_cols = ["Categoría", "Grupo", "Precio", "Costes", "Patrimonio"]
-    
-    # Obtener todas las claves de METRICS_CONFIG_BASE y DYNAMIC_WEIGHTS para asegurar columnas
+
+    # Columnas métricas necesarias para scoring
     required_metrics = set(METRICS_CONFIG_BASE.keys())
     for weights in DYNAMIC_WEIGHTS.values():
         required_metrics.update(weights.keys())
-        
-    required_cols = set(list(required_metrics) + base_cols + ["Rent_3Años%", "Rent_5Años%", "Rent_10Años%"])
-    for col in required_cols:
+
+    # Columnas adicionales de rentabilidad
+    rent_cols = ["Rent_1Mes%", "Rent_3Meses%", "Rent_6Meses%", "Rent_1Año%",
+                 "Rent_3Años%", "Rent_5Años%", "Rent_10Años%"]
+
+    # Asegurar todas las columnas, rellenando NaN si no existen
+    for col in list(base_cols) + list(required_metrics) + rent_cols:
         if col not in df.columns:
             df[col] = np.nan
-            
-    df = df.dropna(subset=base_cols)
-    
-    numeric_cols = [col for col in df.columns if 'Rent_' in col or col in ['Precio', 'Patrimonio', 'Costes', 'KID_SRI', 'Sharpe_3Años_Mensual', 'Alfa_3Años_Mensual']]
-    
+
+    # Convertir columnas numéricas
+    numeric_cols = ["Precio", "Costes", "Patrimonio", "KID_SRI",
+                    "Sharpe_3Años_Mensual", "Alfa_3Años_Mensual"] + rent_cols
+
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-    logger.info(f"✅ ETFs válidos tras limpieza inicial: {len(df)}")
+
+    logger.info(f"✅ Datos cargados: {len(df)} ETFs. Columnas disponibles: {df.columns.tolist()[:10]} ...")
     return df
 
 # ======================================================
@@ -119,7 +133,7 @@ def extrapolar_rentabilidad_anual(df: pd.DataFrame) -> pd.DataFrame:
     de todos los retornos históricos disponibles.
     """
     df = df.copy()
-    logger.info("💡 Calculando Rentabilidad Anual Predicha (Extrapolación Ponderada)...")
+    logger.info("💡 Calculando Rentabilidad Anual Estimada")
     
     # Definición de las métricas de rendimiento y sus pesos/factores de anualización
     RENT_CONFIG = {
@@ -156,105 +170,78 @@ def extrapolar_rentabilidad_anual(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-# ======================================================
-# 🧮 CÁLCULO DE SCORE COMPUESTO Y RANKING (PESOS DINÁMICOS)
-# ======================================================
-def _calculate_score_by_group(df: pd.DataFrame, grouping_col: str, weights_by_group: dict) -> pd.DataFrame:
+
+def clasificar_por_grupo(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calcula un score normalizado y ponderado (0-10) por grupo,
-    utilizando pesos específicos definidos en weights_by_group.
+    Clasifica los ETFs en grupos de riesgo según rentabilidad anual predicha y volatilidad.
+
+    Reglas:
+    - Grupo 1: Rentabilidad ≤ 5% y volatilidad baja
+    - Grupo 2: Rentabilidad entre 5% y 20% y volatilidad media
+    - Grupo 3: Rentabilidad entre 20% y 50% y volatilidad alta
+    - Grupo 4: Rentabilidad > 50% o sin rentabilidad estimada (excluidos del ranking)
     """
-    score_col_name = f"Score_{grouping_col}"
-    rank_col_name = f"Rank_{grouping_col}"
-    df[score_col_name] = np.nan
+    df = df.copy()
 
-    logger.info(f"⚖️ Calculando scores dinámicos para '{grouping_col}' con pesos específicos...")
+    # Calcular umbrales de volatilidad
+    vol_baja = df["Volatilidad_3Años_Mensual"].quantile(0.33)
+    vol_media = df["Volatilidad_3Años_Mensual"].quantile(0.66)
 
-    for group_id, group_df in df.groupby(grouping_col):
-        # 1. Obtener la configuración de pesos específica para este grupo
-        group_weights = weights_by_group.get(group_id, {})
-        
-        # Combinar con la configuración base para tener todas las métricas
-        final_config = METRICS_CONFIG_BASE.copy()
-        
-        # Aplicar el peso dinámico sobre la base (o usar el peso base si no es dinámico)
-        for metric, base_conf in METRICS_CONFIG_BASE.items():
-            final_config[metric]['weight'] = group_weights.get(metric, base_conf.get('weight', 1.0)) # 1.0 por defecto
-            
-        group_indices = group_df.index
-        total_weighted_score = pd.Series(0.0, index=group_indices)
-        total_applicable_weight = pd.Series(0.0, index=group_indices)
-        
-        for metric, config in final_config.items():
-            # Obtener el peso específico para el grupo
-            weight = config['weight']
-            direction = config['direction']
-            
-            group_metric_data = group_df[metric]
-            
-            if group_metric_data.isna().all():
-                continue
+    def asignar_grupo(row):
+        rent = row.get("Rentabilidad_Anual_Predicha", np.nan)
+        vol = row.get("Volatilidad_3Años_Mensual", np.nan)
 
-            # 1. Normalización (Min-Max Scaling) dentro del grupo
-            min_v, max_v = group_metric_data.min(), group_metric_data.max()
-            
-            if min_v == max_v:
-                norm_score = pd.Series(0.5, index=group_indices)
-            else:
-                norm_score = (group_metric_data - min_v) / (max_v - min_v)
-            
-            # 2. Dirección
-            if direction == 'lower':
-                norm_score = 1 - norm_score
-            
-            # Ponderación y Acumulación Neutral (solo si el ETF tiene el dato)
-            has_data_mask = norm_score.notna()
-            
-            total_weighted_score[has_data_mask] += norm_score[has_data_mask] * weight
-            total_applicable_weight[has_data_mask] += weight
-            
-        # 4. CÁLCULO DEL SCORE FINAL POR ETF
-        final_score = total_weighted_score.divide(total_applicable_weight).fillna(np.nan)
+        # 🚫 Sin rentabilidad o >50% → grupo 4 (excluir del top)
+        if pd.isna(rent) or rent > 50:
+            return 4
 
-        df.loc[group_indices, score_col_name] = final_score
+        # 🟢 Grupo 1: bajo riesgo
+        if rent <= 5 and not pd.isna(vol) and vol <= vol_baja:
+            return 1
 
-    # 5. Escalado final (0-10) sobre TODOS los scores calculados
-    valid_scores = df[score_col_name].dropna()
-    if not valid_scores.empty:
-        min_score, max_score = valid_scores.min(), valid_scores.max()
-        if min_score != max_score:
-            df[score_col_name] = (df[score_col_name] - min_score) / (max_score - min_score) * 10
-        else:
-            df[score_col_name] = 5.0 
-    
-    df[score_col_name] = df[score_col_name].round(2)
-    
-    # 6. Ranking
-    df[rank_col_name] = df.groupby(grouping_col)[score_col_name].rank(
-        ascending=False, method="dense", na_option='bottom'
-    ).fillna(0).astype(int)
-    
+        # 🟡 Grupo 2: riesgo medio
+        if 5 < rent <= 20 and not pd.isna(vol) and vol_baja < vol <= vol_media:
+            return 2
+
+        # 🔴 Grupo 3: riesgo alto
+        if 20 < rent <= 50 and not pd.isna(vol) and vol > vol_media:
+            return 3
+
+        # Si no cumple exactamente, lo consideramos fuera (grupo 4)
+        return 4
+
+    df["Grupo"] = df.apply(asignar_grupo, axis=1)
     return df
 
 
-def calcular_score(df: pd.DataFrame) -> pd.DataFrame:
-    """Controlador principal para el cálculo de scores por Categoría y Grupo (con pesos dinámicos)."""
-    df_scored = df.copy()
+def top_etfs_por_grupo(df: pd.DataFrame, top_n: int = 5) -> pd.DataFrame:
+    """
+    Devuelve los top N ETFs por grupo según la Rentabilidad Anual Predicha.
     
-    if "Grupo" not in df_scored.columns:
-        logger.warning("Columna 'Grupo' no encontrada. Se usará 'Categoría' como 'Grupo'.")
-        df_scored["Grupo"] = df_scored["Categoría"]
+    Args:
+        df (pd.DataFrame): DataFrame con columnas 'Grupo' y 'Rentabilidad_Anual_Predicha'.
+        top_n (int): Número de ETFs a devolver por grupo (default=5).
         
-    # Usamos la lógica de pesos dinámicos por Grupo para el ranking de Grupo
-    df_scored = _calculate_score_by_group(df_scored, "Grupo", DYNAMIC_WEIGHTS)
+    Returns:
+        pd.DataFrame: ETFs top por grupo, ordenados por 'Grupo' y rentabilidad descendente.
+    """
+
+    # Filtramos solo filas con rentabilidad predicha disponible
+    df = df[df["Grupo"].isin([1, 2, 3]) & df['Rentabilidad_Anual_Predicha'].notna()]
     
-    # Para el ranking de Categoría, si no tienes una lógica específica, podemos usar un peso promedio o el peso del Grupo 2 (RV Core)
-    # Por simplicidad y robustez, usaremos la lógica del Grupo 2 como fallback para la Categoría.
-    logger.warning("Usando pesos del GRUPO 2 para el ranking a nivel de 'Categoría'.")
-    df_scored = _calculate_score_by_group(df_scored, "Categoría", {cat: DYNAMIC_WEIGHTS.get(2, {}) for cat in df_scored['Categoría'].unique()})
-    
-    logger.info("✅ Scores y rankings calculados con pesos dinámicos.")
-    return df_scored
+    # Iteramos por grupo y marcamos top N
+    for grupo, grupo_df in df.groupby('Grupo'):
+        top_indices = grupo_df.nlargest(top_n, 'Rentabilidad_Anual_Predicha').index
+        df.loc[top_indices, 'Top_Grupo'] = True
+
+    df['Rank_Grupo'] = (
+        df.groupby('Grupo')['Rentabilidad_Anual_Predicha']
+          .rank(method='first', ascending=False)
+          .astype(int)  # 👈 fuerza entero
+    )
+
+    return df
+
 
 # ======================================================
 # 💾 EXPORTACIÓN DE RESULTADOS (Mantenida de v1.6.5)
@@ -264,38 +251,25 @@ def exportar_resultados(df: pd.DataFrame, n_top: int = 5):
     Exporta el registro maestro completo y los rankings Top N.
     """
     logger.info(f"💾 Exportando resultados completos y Top {n_top}...")
-
-    required_cols = ["Rank_Categoria", "Rank_Grupo", "Score_Categoria", "Score_Grupo", PREDICTED_COL]
-    for col in required_cols:
-        if col not in df.columns:
-            logger.warning(f"La columna '{col}' no existe. Rellenando con 0.0 para exportación.")
-            df[col] = 0.0
     
-    cols_topn_grupo = ["Nombre", "ISIN", "Grupo", "Rank_Grupo", PREDICTED_COL]
+    cols_topn_grupo = ["Nombre", "ISIN", "Grupo", "Rank_Grupo", PREDICTED_COL, "Volatilidad_3Años_Mensual"]
 
-    # 3. Guardar CSV completo (REGISTRO MAESTRO)
-    output_file_all = "etfs_scored.csv"
+    # 3. Guardar CSV completo
     df_sorted = df.loc[:,~df.columns.duplicated()].copy() 
-    df_sorted = df_sorted.sort_values(by=["Categoría", "Rank_Categoria"], ascending=True)
-    df_sorted.to_csv(output_file_all, index=False, encoding='utf-8')
-    logger.info(f"✅ Archivo completo exportado: {output_file_all}")
-    
-    # 4. Top N por categoría (Salida completa)
-    top_categoria = df[df["Rank_Categoria"] <= n_top].sort_values(
-        by=["Categoría", "Rank_Categoria"]
-    )
-    top_categoria.to_csv("topN_categoria.csv", index=False, encoding='utf-8')
+    df_sorted = df_sorted.sort_values(by=[PREDICTED_COL], ascending=True)
+    df_sorted.to_csv(ETFS_SCORED_PATH, index=False, encoding='utf-8')
+    logger.info(f"✅ Archivo completo exportado: {ETFS_SCORED_PATH}")
 
-    # 5. Top N por grupo (SALIDA MINIMALISTA SOLICITADA)
+    # 5. Top N por grupo
     top_grupo_full = df[df["Rank_Grupo"] <= n_top].sort_values(
         by=["Grupo", "Rank_Grupo"]
     )
     # Filtrar solo por las columnas solicitadas
     top_grupo_minimal = top_grupo_full[cols_topn_grupo] 
     
-    top_grupo_minimal.to_csv("topN_grupo.csv", index=False, encoding='utf-8')
+    top_grupo_minimal.to_csv(TOPN_GRUPO_PATH, index=False, encoding='utf-8')
 
-    logger.info(f"✅ Archivos Top {n_top} exportados (Top por Grupo en formato minimalista).")
+    logger.info(f"✅ Archivos Top {n_top} exportados en {TOPN_GRUPO_PATH}.")
 
 
 # ======================================================
@@ -305,15 +279,15 @@ def main():
     """Ejecuta el pipeline completo: Carga -> Extrapolación -> Scoring -> Exportación."""
     logger.info("🚀 Iniciando pipeline de scoring y ranking ETFs")
     
-    df = cargar_datos("../limpios/etfs.csv") 
+    df = cargar_datos(ETF_LIMPIO_PATH) 
     
     if df.empty:
         logger.error("No se cargaron datos. Abortando pipeline.")
         return
         
-    df = extrapolar_rentabilidad_anual(df) 
-    
-    df = calcular_score(df)
+    df = extrapolar_rentabilidad_anual(df)
+    df = clasificar_por_grupo(df)
+    df = top_etfs_por_grupo(df)
     
     exportar_resultados(df)
     

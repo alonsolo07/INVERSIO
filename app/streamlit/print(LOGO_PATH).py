@@ -1,1 +1,0 @@
-print(LOGO_PATH)

@@ -10,6 +10,13 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
 
+import sys
+import os
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import ETF_GENERAL_PATH
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -30,10 +37,10 @@ class MorningstarScreenerScraper:
         self.rows_per_page = rows_per_page
         self.current_page = None
         
-        # Reiniciar CSV cada vez que se ejecute el script
-        if os.path.exists(output_file):
-            os.remove(output_file)
-            print(f"Archivo existente '{output_file}' eliminado para reiniciar el scrapeo.")
+        # # Reiniciar CSV cada vez que se ejecute el script
+        # if os.path.exists(output_file):
+        #     os.remove(output_file)
+        #     print(f"Archivo existente '{output_file}' eliminado para reiniciar el scrapeo.")
         
         self.existing_data = pd.DataFrame()
         self.start_page = 1
@@ -44,17 +51,30 @@ class MorningstarScreenerScraper:
         url = "https://global.morningstar.com/es/herramientas/buscador/etfs"
         print(f"Cargando página del screener: {url}")
         self.driver.get(url)
-        time.sleep(self.delay * 2)
+        # Aumentamos tiempo de espera inicial para la carga completa
+        time.sleep(self.delay * 5)
 
 
     def wait_for_table_update(self):
-        time.sleep(self.delay)
+        """Espera a que la tabla de ETFs se actualice tras cambiar de página."""
         try:
-            WebDriverWait(self.driver, 10).until(
+            # Espera a que desaparezca la tabla anterior
+            WebDriverWait(self.driver, 10).until_not(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-data-grid-table__mdc table"))
             )
         except TimeoutException:
-            print("Timeout esperando actualización de tabla")
+            pass  # Puede que la tabla no desaparezca visualmente
+
+        time.sleep(self.delay)  # Espera adicional para estabilidad
+
+        try:
+            # Espera a que reaparezca la tabla nueva
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-data-grid-table__mdc table"))
+            )
+            time.sleep(1)
+        except TimeoutException:
+            print("⚠ Timeout esperando actualización de tabla tras cambio de página")
 
 
     def click_next_button(self):
@@ -131,11 +151,11 @@ class MorningstarScreenerScraper:
         if df.empty:
             return
 
-        # Evita duplicar ISIN
-        if not self.existing_data.empty:
-            df = df[~df['ISIN'].isin(self.existing_data['ISIN'])]
-        if df.empty:
-            return
+        # # Evita duplicar ISIN
+        # if not self.existing_data.empty:
+        #     df = df[~df['ISIN'].isin(self.existing_data['ISIN'])]
+        # if df.empty:
+        #     return
 
         # Orden correcto de columnas según el formato original
         columns_order = [
@@ -159,13 +179,17 @@ class MorningstarScreenerScraper:
                 df[col] = ""
 
         df = df[columns_order]
-        df.rename(columns={"General_2": "General"}, inplace=True)
+        # df.rename(columns={"General_2": "General"}, inplace=True)
+        if "General_2" in df.columns:
+            df.rename(columns={"General_2": "General"}, inplace=True)
 
-        header = not os.path.exists(self.output_file)
-        df.to_csv(self.output_file, mode='a', index=False, encoding='utf-8-sig', header=header)
 
+        # header = not os.path.exists(self.output_file)
+        # df.to_csv(self.output_file, mode='a', index=False, encoding='utf-8-sig', header=header)
+
+        # Acumulamos todo en existing_data
         self.existing_data = pd.concat([self.existing_data, df], ignore_index=True)
-        print(f"{len(self.existing_data)} ETF´s guardados")
+        print(f"{len(self.existing_data)} ETF´s")
 
 
     def scrape_all_pages(self, max_pages=None):
@@ -190,15 +214,46 @@ class MorningstarScreenerScraper:
         print("Proceso completado.")
         print(f"ETF's en CSV: {len(self.existing_data)}")
 
+    def save_csv_final(self):
+        if self.existing_data.empty:
+            print("No hay datos para guardar.")
+            return
+
+        # Reordenar columnas y asegurar el formato
+        columns_order = [
+            "Nombre",
+            "ISIN",
+            "Último Precio",
+            "Rendimiento 12 Meses",
+            "Categoría Morningstar",
+            "Medalist Rating",
+            "Rating Morningstar para Fondos",
+            "Rating ESG Morningstar Para Fondos",
+            "Patrimonio (moneda base)",
+            "Fecha Patrimonio Fondo",
+            "Costes PRIIPs KID",
+            "Fecha de creación"
+        ]
+        for col in columns_order:
+            if col not in self.existing_data.columns:
+                self.existing_data[col] = ""
+
+        df_out = self.existing_data[columns_order]
+        df_out.to_csv(self.output_file, index=False, encoding='utf-8-sig')
+        print(f"✅ Archivo final guardado en '{self.output_file}' con {len(df_out)} ETFs.")
+
 
     def scrape_to_csv(self, max_pages=None):
         try:
             self.scrape_all_pages(max_pages=max_pages)
+            # Guardado final al terminar
+            self.save_csv_final()
         finally:
             self.driver.quit()
+            # Pequeño delay para liberar recursos antes del siguiente scraper
+            time.sleep(5)
             print("Cerrando scraper.")
 
-
 if __name__ == "__main__":
-    scraper = MorningstarScreenerScraper(headless=True, delay=3, output_file="../etf/originales/etf_general.csv")
+    scraper = MorningstarScreenerScraper(headless=True, delay=3, output_file=ETF_GENERAL_PATH)
     scraper.scrape_to_csv()

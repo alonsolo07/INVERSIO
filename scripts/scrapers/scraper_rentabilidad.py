@@ -9,6 +9,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
 
+import sys
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import ETF_RENTABILIDAD_PATH
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -28,19 +33,20 @@ class MorningstarRentabilidadScraper:
         self.rows_per_page = rows_per_page
         self.current_page = None
         
-        # Cargar CSV previo si existe
-        self.existing_data = pd.read_csv(output_file) if os.path.exists(output_file) else pd.DataFrame()
-        self.start_page = (len(self.existing_data) // rows_per_page) + 1 if not self.existing_data.empty else 1
-        print(f"ETF´s existentes: {len(self.existing_data)}. Reanudando en página {self.start_page}.")
+        # Inicializamos datos en memoria, no cargamos CSV previo
+        self.existing_data = pd.DataFrame()
+        self.start_page = 1
+        print("Iniciando scrapeo desde la página 1.")
 
     def load_screener_page(self):
         url = "https://global.morningstar.com/es/herramientas/buscador/etfs"
         print(f"Cargando página del screener: {url}")
         self.driver.get(url)
-        time.sleep(self.delay * 2)
+        # Aumentamos tiempo de espera inicial para la carga completa
+        time.sleep(self.delay * 5)
+
 
     def close_cookies_banner(self):
-        """Cierra el banner de cookies si aparece"""
         try:
             accept_button = self.driver.find_element(By.CSS_SELECTOR, "button#onetrust-accept-btn-handler")
             accept_button.click()
@@ -50,19 +56,17 @@ class MorningstarRentabilidadScraper:
             pass
 
     def select_inversor_individual(self):
-        """Cierra el overlay de tipo de inversor seleccionando 'Soy un Inversor Individual'"""
         try:
             button = WebDriverWait(self.driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-testid='select-role-individual']"))
             )
             button.click()
-            time.sleep(2)  # esperar a que el overlay desaparezca
+            time.sleep(2)
             print("Overlay de tipo de inversor cerrado")
         except TimeoutException:
             pass
 
     def wait_for_overlays_to_disappear(self):
-        """Espera a que overlays bloqueantes desaparezcan"""
         try:
             WebDriverWait(self.driver, 10).until_not(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-role-selection__overlay__mdc"))
@@ -73,34 +77,48 @@ class MorningstarRentabilidadScraper:
 
     def select_rentabilidad_view(self):
         """Selecciona la vista Rentabilidad"""
-        try:
-            dropdown_button = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button.mdc-tools-view-selector__views-button__mdc"))
-            )
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
-            dropdown_button.click()
-            time.sleep(1)
+        for attempt in range(3):  # Retry hasta 3 veces
+            try:
+                dropdown_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.mdc-tools-view-selector__views-button__mdc"))
+                )
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_button)
+                dropdown_button.click()
+                time.sleep(1)
 
-            options = self.driver.find_elements(By.CSS_SELECTOR, "div.mdc-list-group-item__text__mdc")
-            for option in options:
-                if "Rentabilidad" in option.text:
-                    option.click()
-                    time.sleep(2)  # esperar a que la tabla se actualice
-                    print("Vista 'Rentabilidad' seleccionada")
-                    return
-            print("No se encontró la opción 'Rentabilidad'")
-        except Exception as e:
-            print(f"Error al seleccionar vista Rentabilidad: {e}")
+                options = self.driver.find_elements(By.CSS_SELECTOR, "div.mdc-list-group-item__text__mdc")
+                for option in options:
+                    if "Rentabilidad" in option.text:
+                        option.click()
+                        time.sleep(2)
+                        print("Vista 'Rentabilidad' seleccionada")
+                        return
+                print("No se encontró la opción 'Rentabilidad'")
+            except Exception as e:
+                print(f"Intento {attempt+1}/3 fallido al seleccionar vista Rentabilidad: {e}")
+                time.sleep(2)
 
     def wait_for_table_update(self):
-        time.sleep(self.delay)
+        """Espera a que la tabla de ETFs se actualice tras cambiar de página."""
         try:
-            WebDriverWait(self.driver, 10).until(
+            # Espera a que desaparezca la tabla anterior
+            WebDriverWait(self.driver, 10).until_not(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-data-grid-table__mdc table"))
             )
         except TimeoutException:
-            print("Timeout esperando actualización de tabla")
+            pass  # Puede que la tabla no desaparezca visualmente
 
+        time.sleep(self.delay)  # Espera adicional para estabilidad
+
+        try:
+            # Espera a que reaparezca la tabla nueva
+            WebDriverWait(self.driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.mdc-data-grid-table__mdc table"))
+            )
+            time.sleep(1)
+        except TimeoutException:
+            print("⚠ Timeout esperando actualización de tabla tras cambio de página")
+            
     def click_next_button(self):
         try:
             next_buttons = self.driver.find_elements(
@@ -113,13 +131,12 @@ class MorningstarRentabilidadScraper:
             next_button = next_buttons[0]
             if next_button.get_attribute("disabled"):
                 print("\n-----------------------------------")
-                print("Ultima página alcanzada")
+                print("Última página alcanzada")
                 print("-----------------------------------\n")
                 return False
 
             self.driver.execute_script("arguments[0].scrollIntoView(true);", next_button)
             time.sleep(0.5)
-
             try:
                 next_button.click()
             except ElementClickInterceptedException:
@@ -171,15 +188,22 @@ class MorningstarRentabilidadScraper:
         df = pd.DataFrame(data)
         if df.empty:
             return
-        if not self.existing_data.empty:
-            df = df[~df['ISIN'].isin(self.existing_data['ISIN'])]
-        if df.empty:
-            return
 
-        header = not os.path.exists(self.output_file)
-        df.to_csv(self.output_file, mode='a', index=False, encoding='utf-8-sig', header=header)
+        # Orden columnas para consistencia
+        columns_order = [
+            "Nombre", "ISIN", "Rent Total 1 Día", "Rent Total 1 Semana", "Rent Total 1 Mes",
+            "Rent Total 3 Meses", "Rent Total 6 Meses", "Rent Total Año", "Rent Total 1 Año",
+            "Rent Total 3 Años", "Rent Total 5 Años", "Rent Total 10 Años"
+        ]
+        for col in columns_order:
+            if col not in df.columns:
+                df[col] = ""
+
+        df = df[columns_order]
+
+        # Acumulamos todo en memoria
         self.existing_data = pd.concat([self.existing_data, df], ignore_index=True)
-        print(f"{len(self.existing_data)} ETF´s guardados")
+        print(f"{len(self.existing_data)} ETF´s")
 
     def jump_to_start_page(self):
         if self.start_page <= 1:
@@ -218,15 +242,36 @@ class MorningstarRentabilidadScraper:
             self.wait_for_table_update()
 
         print("Proceso completado.")
-        print(f"ETF's en CSV: {len(self.existing_data)}")
+        print(f"ETF's en memoria: {len(self.existing_data)}")
+
+    def save_csv_final(self):
+        if self.existing_data.empty:
+            print("No hay datos para guardar.")
+            return
+
+        columns_order = [
+            "Nombre", "ISIN", "Rent Total 1 Día", "Rent Total 1 Semana", "Rent Total 1 Mes",
+            "Rent Total 3 Meses", "Rent Total 6 Meses", "Rent Total Año", "Rent Total 1 Año",
+            "Rent Total 3 Años", "Rent Total 5 Años", "Rent Total 10 Años"
+        ]
+        for col in columns_order:
+            if col not in self.existing_data.columns:
+                self.existing_data[col] = ""
+
+        df_out = self.existing_data[columns_order]
+        df_out.to_csv(self.output_file, index=False, encoding='utf-8-sig')
+        print(f"✅ Archivo final guardado en '{self.output_file}' con {len(df_out)} ETFs.")
 
     def scrape_to_csv(self, max_pages=None):
         try:
             self.scrape_all_pages(max_pages=max_pages)
+            self.save_csv_final()
         finally:
             self.driver.quit()
+            # Pequeño delay para liberar recursos antes del siguiente scraper
+            time.sleep(5)
             print("Cerrando scraper.")
 
 if __name__ == "__main__":
-    scraper = MorningstarRentabilidadScraper(headless=True, delay=3, output_file="etf_rentabilidad.csv")
+    scraper = MorningstarRentabilidadScraper(headless=True, delay=3, output_file=ETF_RENTABILIDAD_PATH)
     scraper.scrape_to_csv()

@@ -17,14 +17,20 @@ import re
 import logging
 from typing import Dict, Any
 
+import sys
+import os
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import ETF_GENERAL_PATH, ETF_RENTABILIDAD_PATH, ETF_RIESGO_PATH, ETF_LIMPIO_PATH, CATEGORIAS_PATH
+
 # ============================================================================ #
 # VARIABLES GLOBALES / RUTAS
 # ============================================================================ #
-PATH_GENERAL = './originales/etf_general.csv'
-PATH_RENTABILIDAD = './originales/etf_rentabilidad.csv'
-PATH_RIESGO = './originales/etf_riesgo.csv'
-PATH_OUTPUT = 'etfs.csv'
-PATH_CATEGORIAS = 'categorias_distintas.csv'
+# PATH_GENERAL = './originales/etf_general.csv'
+# PATH_RENTABILIDAD = './originales/etf_rentabilidad.csv'
+# PATH_RIESGO = './originales/etf_riesgo.csv'
+# PATH_OUTPUT = 'etfs.csv'
+# PATH_CATEGORIAS = 'categorias_distintas.csv'
 
 # ============================================================================ #
 # CONFIGURACIÓN DE LOGGING
@@ -260,12 +266,12 @@ def merge_datasets(df_gen:pd.DataFrame, df_rent:pd.DataFrame, df_ries:pd.DataFra
     logger.info(f"✅ Merge completado: {len(df_final)} ETFs finales")
     return df_final
 
-def exportar_categorias(df:pd.DataFrame)->None:
-    """
-    Exporta categorías únicas a CSV
-    """
-    pd.Series(df['Categoría'].unique(), name='Categoría').to_csv(PATH_CATEGORIAS, index=False, encoding='utf-8')
-    logger.info(f"✅ Archivo '{PATH_CATEGORIAS}' generado con categorías únicas")
+# def exportar_categorias(df:pd.DataFrame)->None:
+#     """
+#     Exporta categorías únicas a CSV
+#     """
+#     pd.Series(df['Categoría'].unique(), name='Categoría').to_csv(CATEGORIAS_PATH, index=False, encoding='utf-8')
+#     logger.info(f"✅ Archivo '{CATEGORIAS_PATH}' generado con categorías únicas")
 
 def reclasificar_categorias(df:pd.DataFrame)->pd.DataFrame:
     """
@@ -350,33 +356,6 @@ def reclasificar_categorias(df:pd.DataFrame)->pd.DataFrame:
         # Cualquier otra categoría no listada se clasificará como Especiales
     }
     df['Categoría'] = df['Categoría'].map(categoria_modelo).fillna('Especiales')
-
-    # Asignar grupo numérico (1 = Renta Fija, 2 = Renta Variable, 3 = Alternativos)
-    grupo_map = {
-        # Renta Variable → grupo 2
-        'RV - General': 2,
-        'RV - Emergente': 2,
-        'RV - Temáticas': 2,
-        
-        # Renta Fija → grupo 1
-        'RF - Bonos Gubernamentales': 1,
-        'RF - Bonos Corporativos': 1,
-        'RF - Bonos Mixtos': 1,
-        
-        # Alternativos → grupo 3
-        'Materias Primas': 3,
-        'Real Estate': 3,
-        'Especiales': 3
-    }
-
-    df['Grupo'] = df['Categoría'].map(grupo_map).fillna(3).astype(int)
-
-    # Reordenar columnas: colocar 'Grupo' justo después de 'Categoría'
-    cols = list(df.columns)
-    if 'Categoría' in cols and 'Grupo' in cols:
-        idx = cols.index('Categoría') + 1
-        cols.insert(idx, cols.pop(cols.index('Grupo')))
-        df = df[cols]
     return df
 
 def eliminar_cripto_y_extremos(df: pd.DataFrame) -> pd.DataFrame:
@@ -414,15 +393,15 @@ def eliminar_cripto_y_extremos(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     tipos_cambio = obtener_tipos_cambio()
-    df_general = limpiar_general(PATH_GENERAL, tipos_cambio)
-    df_rent = limpiar_rentabilidad(PATH_RENTABILIDAD)
-    df_riesgo = limpiar_riesgo(PATH_RIESGO)
+    df_general = limpiar_general(ETF_GENERAL_PATH, tipos_cambio)
+    df_rent = limpiar_rentabilidad(ETF_RENTABILIDAD_PATH)
+    df_riesgo = limpiar_riesgo(ETF_RIESGO_PATH)
     df_final = merge_datasets(df_general, df_rent, df_riesgo)
     df_final = eliminar_cripto_y_extremos(df_final)
     df_final = reclasificar_categorias(df_final)
-    exportar_categorias(df_final)
-    df_final.to_csv(PATH_OUTPUT, index=False, encoding='utf-8')
-    logger.info(f"✅ Pipeline completado. Archivo final '{PATH_OUTPUT}' generado.")
+    # exportar_categorias(df_final)
+    df_final.to_csv(ETF_LIMPIO_PATH, index=False, encoding='utf-8')
+    logger.info(f"✅ Pipeline completado. Archivo final '{ETF_LIMPIO_PATH}' generado.")
 
 if __name__ == "__main__":
     main()

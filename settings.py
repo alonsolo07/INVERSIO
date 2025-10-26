@@ -4,7 +4,7 @@ Configuración centralizada de rutas del proyecto Inversio
 from pathlib import Path
 
 # Raíz del proyecto (directorio donde está este archivo config/)
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent
 
 # Directorios principales
 DATA_DIR = ROOT_DIR / "data"
@@ -26,6 +26,8 @@ ETF_GENERAL_PATH = ETF_ORIGINALES_DIR / "etf_general.csv"
 ETF_RENTABILIDAD_PATH = ETF_ORIGINALES_DIR / "etf_rentabilidad.csv"
 ETF_RIESGO_PATH = ETF_ORIGINALES_DIR / "etf_riesgo.csv"
 ETF_LIMPIO_PATH = ETF_LIMPIOS_DIR / "etfs.csv"
+
+CATEGORIAS_PATH = ETF_DIR / 'categorias_distintas.csv'
 
 # Archivos específicos - Clientes
 CLIENTES_BASE_PATH = CLIENTES_DIR / "clientes_base.csv"

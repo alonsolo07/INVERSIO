@@ -23,6 +23,12 @@ import numpy as np
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 
+import sys
+import os
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import CLIENTES_BASE_PATH, CLIENTES_PESOS_PATH
+
 # ============================================================================ #
 # CONFIGURACIÓN DE LOGGING
 # ============================================================================ #
@@ -36,8 +42,8 @@ logger = logging.getLogger(__name__)
 # ============================================================================ #
 # CONSTANTES
 # ============================================================================ #
-PATH_INPUT = 'clientes_base.csv'
-PATH_OUTPUT = 'clientes_con_pesos.csv'
+PATH_INPUT = CLIENTES_BASE_PATH
+PATH_OUTPUT = CLIENTES_PESOS_PATH
 
 # Límites mínimos de asignación
 MIN_RF = 0.20   # Renta Fija mínimo 20%

@@ -28,6 +28,12 @@ Fecha: Octubre 2025
 import pandas as pd
 import logging
 
+import sys
+import os
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import CLIENTES_PESOS_PATH, TOPN_GRUPO_PATH, RECOMENDACIONES_PATH
+
 # ======================================================
 # ⚙️ Configuración de logging
 # ======================================================
@@ -42,8 +48,8 @@ logger = logging.getLogger(__name__)
 # ======================================================
 # Clientes: contienen los pesos por grupo (RF, RV, Alt)
 # ETFs: contienen su score por grupo y rentabilidad esperada estimada
-df_clientes = pd.read_csv("../clientes/clientes_con_pesos.csv")
-df_etfs = pd.read_csv("../etf/scorev2/topN_por_grupo.csv")
+#df_clientes = pd.read_csv("../clientes/clientes_con_pesos.csv")
+df_etfs = pd.read_csv(TOPN_GRUPO_PATH)
 
 # Mapeo corto para los grupos
 grupo_map = {1: "RF", 2: "RV", 3: "Alt"}
@@ -127,7 +133,7 @@ def recomendar_etfs_dinamico(clientes: pd.DataFrame, etfs: pd.DataFrame) -> pd.D
 
 
 # ======================================================
-# 📈 Nueva función: cálculo de rentabilidad esperada por cliente
+# 📈 Cálculo de rentabilidad esperada por cliente
 # ======================================================
 def agregar_rentabilidad_clientes(df_recomendaciones: pd.DataFrame, df_etfs: pd.DataFrame) -> pd.DataFrame:
     """
@@ -172,21 +178,28 @@ def agregar_rentabilidad_clientes(df_recomendaciones: pd.DataFrame, df_etfs: pd.
 
     return df_out
 
-
 # ======================================================
 # 🚀 EJECUCIÓN PRINCIPAL (Pipeline completo)
 # ======================================================
 if __name__ == "__main__":
     logger.info("🚀 Generando recomendaciones dinámicas para clientes...")
 
-    # 1️⃣ Generar recomendaciones base
+    # 1️⃣ Leer los archivos CSV desde settings (Paths)
+    df_clientes = pd.read_csv(CLIENTES_PESOS_PATH)
+    df_etfs = pd.read_csv(TOPN_GRUPO_PATH)
+
+    # Mapear los grupos (si no se hizo antes)
+    grupo_map = {1: "RF", 2: "RV", 3: "Alt"}
+    df_etfs["Grupo_Corto"] = df_etfs["Grupo"].map(grupo_map)
+
+    # 2️⃣ Generar recomendaciones base
     df_recomendaciones = recomendar_etfs_dinamico(df_clientes, df_etfs)
 
-    # 2️⃣ Añadir cálculo de rentabilidad esperada (por ETF y cliente)
+    # 3️⃣ Añadir cálculo de rentabilidad esperada (por ETF y cliente)
     df_final = agregar_rentabilidad_clientes(df_recomendaciones, df_etfs)
 
-    # 3️⃣ Guardar el resultado final en un único archivo CSV consolidado
-    df_final.to_csv("recomendaciones_clientes.csv", index=False, encoding="utf-8")
+    # 4️⃣ Guardar el resultado final en un único archivo CSV consolidado
+    df_final.to_csv(RECOMENDACIONES_PATH, index=False, encoding="utf-8")
 
-    logger.info(f"✅ Archivo final generado con {len(df_final)} filas.")
+    logger.info(f"✅ Archivo final generado: {RECOMENDACIONES_PATH} con {len(df_final)} filas.")
     logger.info("✅ Proceso completado exitosamente.")

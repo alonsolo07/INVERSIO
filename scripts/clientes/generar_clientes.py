@@ -20,6 +20,12 @@ import pandas as pd
 import numpy as np
 import logging
 
+import sys
+import os
+# Agregar raíz del proyecto al path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from settings import CLIENTES_BASE_PATH
+
 # ------------------------------------------------------
 # Configuración general y parámetros globales
 # ------------------------------------------------------
@@ -89,7 +95,6 @@ def estimar_patrimonio(sueldo, edad):
 def generar_clientes_sinteticos(
         n_clientes=500,
         semilla=42,
-        output_path='./clientes_base.csv',
         conocimiento_probs=CONOCIMIENTO_PROBS
     ):
     """
@@ -98,7 +103,6 @@ def generar_clientes_sinteticos(
     Args:
         n_clientes (int): Número de clientes a generar
         semilla (int): Semilla para reproducibilidad
-        output_path (str): Ruta donde se guardará el CSV generado
         conocimiento_probs (dict): Probabilidades para asignar conocimiento inversor aleatorio
 
     Returns:
@@ -119,7 +123,7 @@ def generar_clientes_sinteticos(
     clientes = pd.DataFrame({
         "ClienteID": range(1, n_clientes + 1),
         "Edad": edades,
-        "Sueldo_Anual": np.round(sueldos, 2),
+        "Sueldo_Mensual": np.round(sueldos, 2),
         "Patrimonio": np.round(patrimonios, 2),
         "Horizonte": np.random.choice(["Corto", "Medio", "Largo"], size=n_clientes),
         "Tolerancia_Riesgo": np.random.choice(["Baja", "Media", "Alta"], size=n_clientes),
@@ -159,8 +163,8 @@ def generar_clientes_sinteticos(
     # Guardar CSV final
     # ----------------------------
     try:
-        clientes.to_csv(output_path, index=False)
-        logging.info(f"✅ CSV de clientes base generado correctamente en: {output_path}")
+        clientes.to_csv(CLIENTES_BASE_PATH, index=False)
+        logging.info(f"✅ CSV de clientes base generado correctamente en: {CLIENTES_BASE_PATH}")
     except Exception as e:
         logging.error(f"❌ Error al guardar el CSV: {e}")
 

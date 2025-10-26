@@ -25,11 +25,7 @@ El objetivo es **democratizar la inversión**, facilitando al usuario decisiones
 ## 📂 Estructura del Proyecto
 
 ```
-inversio/
-│
-├── app/
-│   └── streamlit/
-│       └── inversio.py              
+inversio/         
 │
 ├── assets/
 │   └── inversio_logo.png            
@@ -51,33 +47,36 @@ inversio/
 │   │   └── recomendaciones_clientes.csv  
 │   │
 │   └── score/
-│       ├── etfs_scored.csv          
-│       ├── topN_categoria.csv       
+│       ├── etfs_scored.csv               
 │       └── topN_grupo.csv           
 │
 ├── scripts/
-│   ├── scrapers/
-│   │   ├── scraper_general.py       
-│   │   ├── scraper_renta.py         
-│   │   └── scraper_riesgo.py        
-│   │
-│   ├── etf/
-│   │   └── cleaner.py              
 │   │
 │   ├── clientes/
 │   │   ├── generar_clientes.py      
 │   │   └── asignar_pesos.py
 │   │
+│   ├── etf/
+│   │   └── cleaner.py              
+│   │
+│   ├── recomendador/
+│   │   └── recomendador.py
+│   │
 │   ├── scoring/
 │   │   └── scoring_etfs.py
 │   │
-│   └── recomendador/
-│       └── recomendador.py
+│   └── scrapers/
+│       ├── scraper_general.py       
+│       ├── scraper_renta.py         
+│       └── scraper_riesgo.py        
 │
 ├── .gitignore
+├── demo.py
+├── inversio.py
 ├── README.md
 ├── requirements.txt
-└── run_all.py
+├── run_all.py
+└── inversio.py
 ```
 
 ---
@@ -216,11 +215,21 @@ python run_all.py
 
 ### 5️⃣ Lanzar la aplicación
 
+Existen dos versiones:
+
+   - Versión de prueba (inversio_test)  
+   Permite probar la aplicación mediante un formulario interactivo, con toda la funcionalidad completa.
+
+```bash
+streamlit run app/streamlit/inversio_test.py
+```
+
+   - Versión completa (inversio)  
+   Muestra todos los datos del proyecto, incluyendo gráficos, carteras y simulaciones, y permite seleccionar clientes específicos.
+
 ```bash
 streamlit run app/streamlit/inversio.py
 ```
-
-La aplicación se abrirá en tu navegador por defecto, mostrando los gráficos, carteras recomendadas y simulaciones de rentabilidad.
 
 ## 🧠 Tecnologías Principales
 
