@@ -382,7 +382,7 @@ def pagina_formulario():
             st.markdown("<b>", unsafe_allow_html=True)
             
             # Sueldo Mensual
-            st.markdown("<div class='input-label'>💰 Sueldo Mensual (€)</div>", unsafe_allow_html=True)
+            st.markdown("<div class='input-label'>💰 Sueldo Anual (€)</div>", unsafe_allow_html=True)
             sueldo_mensual_input = st.text_input(
                 "Sueldo:",
                 value="2500",
@@ -497,7 +497,7 @@ def pagina_resultados():
         st.markdown(f"""
         <div class='profile-box'>
             <div class='profile-item'><span class='profile-label'>Edad:</span> {perfil['Edad']} años</div>
-            <div class='profile-item'><span class='profile-label'>Sueldo mensual:</span> {perfil['Sueldo_Mensual']/12:,.0f} €</div>
+            <div class='profile-item'><span class='profile-label'>Sueldo mensual:</span> {perfil['Sueldo_Mensual']:,.0f} €</div>
             <div class='profile-item'><span class='profile-label'>Horizonte de inversión:</span> {perfil['Horizonte']}</div>
             <div class='profile-item'><span class='profile-label'>Tolerancia a riesgo:</span> {perfil['Tolerancia_Riesgo']}</div>
         </div>
