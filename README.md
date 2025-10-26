@@ -71,7 +71,7 @@ inversio/
 │       └── scraper_riesgo.py        
 │
 ├── .gitignore
-├── demo.py
+├── inversio_test.py
 ├── inversio.py
 ├── README.md
 ├── requirements.txt
